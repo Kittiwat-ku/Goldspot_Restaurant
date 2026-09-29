@@ -1,0 +1,142 @@
+
+export const DATABASE_NAME = 'goldspot_restaurant_order_v1.db';
+
+// ราคาเก็บเป็นสตางค์ (จำนวนเต็ม) หารด้วยค่านี้ตอนแสดงผลอย่างเดียว
+export const SATANG_PER_BAHT = 100;
+
+export const SCHEMA_SQL = `
+PRAGMA foreign_keys = ON;
+
+
+-- หมวดหมู่อาหาร
+
+CREATE TABLE IF NOT EXISTS categories (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  name        TEXT    NOT NULL UNIQUE,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  CHECK (length(trim(name)) > 0)
+);
+
+
+-- รายการอาหาร  (ราคาเก็บเป็นสตางค์ จำนวนเต็ม ห้ามใช้ REAL)
+
+CREATE TABLE IF NOT EXISTS menu_items (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  category_id       INTEGER NOT NULL REFERENCES categories(id)
+                      ON UPDATE CASCADE
+                      ON DELETE RESTRICT,
+  name              TEXT    NOT NULL,
+  price_satang      INTEGER NOT NULL,
+  is_available      INTEGER NOT NULL DEFAULT 1,
+  image_uri         TEXT,
+  UNIQUE (category_id, name),
+  CHECK (length(trim(name)) > 0),
+  CHECK (price_satang > 0),
+  CHECK (is_available IN (0, 1))
+);
+
+
+-- โต๊ะในร้าน
+CREATE TABLE IF NOT EXISTS dining_tables (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_number  INTEGER NOT NULL UNIQUE,
+  seats         INTEGER NOT NULL DEFAULT 4,
+  CHECK (table_number > 0),
+  CHECK (seats > 0)
+);
+
+
+-- บิล  (หนึ่งมื้อของหนึ่งโต๊ะ)
+CREATE TABLE IF NOT EXISTS bills (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  table_id   INTEGER NOT NULL REFERENCES dining_tables(id)
+               ON UPDATE CASCADE
+               ON DELETE RESTRICT,
+  status     TEXT    NOT NULL DEFAULT 'open',
+  opened_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  closed_at  TEXT,
+  CHECK (status IN ('open', 'closed')),
+  CHECK (
+    (status = 'open'   AND closed_at IS NULL) OR
+    (status = 'closed' AND closed_at IS NOT NULL)
+  )
+);
+
+-- หนึ่งโต๊ะเปิดบิลค้างได้ครั้งละหนึ่งใบเท่านั้น (บิลที่ปิดแล้วไม่ถูกนับ)
+CREATE UNIQUE INDEX IF NOT EXISTS ux_bills_one_open_per_table
+  ON bills (table_id)
+  WHERE status = 'open';
+
+
+-- 5 รอบการสั่ง  (ลูกค้ากดยืนยันหนึ่งครั้ง = หนึ่งรอบ)
+
+CREATE TABLE IF NOT EXISTS order_rounds (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  bill_id     INTEGER NOT NULL REFERENCES bills(id)
+                ON UPDATE CASCADE
+                ON DELETE CASCADE,
+  round_no    INTEGER NOT NULL,
+  ordered_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+  UNIQUE (bill_id, round_no),
+  CHECK (round_no > 0)
+);
+
+
+--รายการที่สั่งในแต่ละรอบ
+
+CREATE TABLE IF NOT EXISTS order_items (
+  id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  round_id           INTEGER NOT NULL REFERENCES order_rounds(id)
+                       ON UPDATE CASCADE
+                       ON DELETE CASCADE,
+  menu_item_id       INTEGER NOT NULL REFERENCES menu_items(id)
+                       ON UPDATE CASCADE
+                       ON DELETE RESTRICT,
+  item_name          TEXT    NOT NULL,
+  unit_price_satang  INTEGER NOT NULL,
+  quantity           INTEGER NOT NULL,
+  status             TEXT    NOT NULL DEFAULT 'pending',
+  note               TEXT,
+  cancelled_at       TEXT,
+  CHECK (length(trim(item_name)) > 0),
+  CHECK (unit_price_satang > 0),
+  CHECK (quantity > 0),
+  CHECK (status IN ('pending', 'cooking', 'served', 'cancelled')),
+  CHECK (
+    (status = 'cancelled' AND cancelled_at IS NOT NULL) OR
+    (status <> 'cancelled' AND cancelled_at IS NULL)
+  )
+);
+
+
+CREATE TABLE IF NOT EXISTS app_meta (
+  key    TEXT PRIMARY KEY,
+  value  TEXT NOT NULL
+);
+
+--index
+
+-- หน้าเมนูฝั่งลูกค้า: ดึงเมนูของหมวดหนึ่ง เรียงตามชื่อ
+CREATE INDEX IF NOT EXISTS idx_menu_items_category
+  ON menu_items (category_id, name);
+
+-- หน้าเลือกโต๊ะ: หาบิลที่ยังเปิดอยู่ของโต๊ะนั้น
+CREATE INDEX IF NOT EXISTS idx_bills_table_status
+  ON bills (table_id, status);
+
+-- หน้าสรุปยอดขายรายวัน: กรองด้วยช่วงวันที่ปิดบิล
+CREATE INDEX IF NOT EXISTS idx_bills_closed_at
+  ON bills (closed_at);
+
+-- หน้าสรุปบิล: ไล่รอบทั้งหมดของบิลเดียวตามลำดับรอบ
+CREATE INDEX IF NOT EXISTS idx_order_rounds_bill
+  ON order_rounds (bill_id, round_no);
+
+-- หน้าสรุปบิล / การรวมยอด: ดึงรายการทั้งหมดของรอบหนึ่ง
+CREATE INDEX IF NOT EXISTS idx_order_items_round
+  ON order_items (round_id);
+
+-- หน้าจอครัว: ดึงเฉพาะรายการที่ยังไม่เสิร์ฟ เรียงเก่าสุดขึ้นก่อน
+CREATE INDEX IF NOT EXISTS idx_order_items_status
+  ON order_items (status, id);
+`;
