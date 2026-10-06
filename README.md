@@ -1,4 +1,5 @@
 # Goldspot_Restaurant
+Group 8
 
 XAUUSD Enjoyer!
 
