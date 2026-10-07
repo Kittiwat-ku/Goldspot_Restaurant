@@ -1,4 +1,3 @@
-/** โต๊ะทั้งหมด */
 export function listTablesWithStatus(db) {
   return db.getAllAsync(
     `SELECT t.id                AS table_id,
@@ -6,7 +5,13 @@ export function listTablesWithStatus(db) {
             t.seats,
             b.id                AS open_bill_id,
             b.opened_at,
-            COALESCE(SUM(oi.unit_price_satang * oi.quantity), 0) AS total_satang
+            COALESCE(SUM(
+              (oi.unit_price_satang +
+                (SELECT COALESCE(SUM(oio.extra_price_satang), 0)
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)
+              ) * oi.quantity
+            ), 0) AS total_satang
        FROM dining_tables AS t
        LEFT JOIN bills        AS b  ON b.table_id = t.id AND b.status = 'open'
        LEFT JOIN order_rounds AS r  ON r.bill_id  = b.id
@@ -48,15 +53,17 @@ export function getBillById(db, billId) {
   );
 }
 
-/**
- * ยอดรวมทั้งบิล
- * รายการที่ถูกยกเลิกไม่ถูกนับ
- */
 export function getBillTotal(db, billId) {
   return db.getFirstAsync(
-    `SELECT COALESCE(SUM(oi.unit_price_satang * oi.quantity), 0) AS total_satang,
-            COALESCE(SUM(oi.quantity), 0)                        AS total_quantity,
-            COUNT(oi.id)                                         AS line_count
+    `SELECT COALESCE(SUM(
+              (oi.unit_price_satang +
+                (SELECT COALESCE(SUM(oio.extra_price_satang), 0)
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)
+              ) * oi.quantity
+            ), 0)                         AS total_satang,
+            COALESCE(SUM(oi.quantity), 0) AS total_quantity,
+            COUNT(oi.id)                  AS line_count
        FROM order_rounds AS r
        JOIN order_items  AS oi ON oi.round_id = r.id
       WHERE r.bill_id = ?
@@ -67,32 +74,46 @@ export function getBillTotal(db, billId) {
 
 export function listBillLines(db, billId) {
   return db.getAllAsync(
-    `SELECT r.id                                AS round_id,
-            r.round_no,
-            r.ordered_at,
-            oi.id                               AS order_item_id,
-            oi.item_name,
-            oi.unit_price_satang,
-            oi.quantity,
-            oi.unit_price_satang * oi.quantity  AS line_total_satang,
-            oi.status,
-            oi.note
-       FROM order_rounds AS r
-       JOIN order_items  AS oi ON oi.round_id = r.id
-      WHERE r.bill_id = ?
-      ORDER BY r.round_no, oi.id;`,
+    `SELECT line.*,
+            line.unit_price_satang + line.options_satang                    AS unit_total_satang,
+            (line.unit_price_satang + line.options_satang) * line.quantity  AS line_total_satang
+       FROM (
+         SELECT r.id          AS round_id,
+                r.round_no,
+                r.ordered_at,
+                oi.id         AS order_item_id,
+                oi.item_name,
+                oi.unit_price_satang,
+                oi.quantity,
+                oi.status,
+                oi.note,
+                (SELECT GROUP_CONCAT(oio.option_name, ', ')
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)                 AS options_text,
+                (SELECT COALESCE(SUM(oio.extra_price_satang), 0)
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)                 AS options_satang
+           FROM order_rounds AS r
+           JOIN order_items  AS oi ON oi.round_id = r.id
+          WHERE r.bill_id = ?
+       ) AS line
+      ORDER BY line.round_no, line.order_item_id;`,
     [billId]
   );
 }
 
-/** ยอดรวมแยกตามรอบ */
 export function listRoundTotals(db, billId) {
   return db.getAllAsync(
     `SELECT r.id AS round_id,
             r.round_no,
             r.ordered_at,
-            COALESCE(SUM(CASE WHEN oi.status <> 'cancelled'
-                              THEN oi.unit_price_satang * oi.quantity END), 0) AS round_total_satang
+            COALESCE(SUM(CASE WHEN oi.status <> 'cancelled' THEN
+              (oi.unit_price_satang +
+                (SELECT COALESCE(SUM(oio.extra_price_satang), 0)
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)
+              ) * oi.quantity
+            END), 0) AS round_total_satang
        FROM order_rounds AS r
        LEFT JOIN order_items AS oi ON oi.round_id = r.id
       WHERE r.bill_id = ?
@@ -102,9 +123,31 @@ export function listRoundTotals(db, billId) {
   );
 }
 
-/**
- * ปิดบิล ปิดแล้วโต๊ะนั้นเปิดบิลใหม่ได้ทันที และบิลเก่ายังเรียกดูย้อนหลังได้
- */
+export function listClosedBills(db) {
+  return db.getAllAsync(
+    `SELECT b.id           AS bill_id,
+            b.opened_at,
+            b.closed_at,
+            t.id           AS table_id,
+            t.table_number,
+            COALESCE(SUM(CASE WHEN oi.status <> 'cancelled' THEN oi.quantity END), 0) AS total_quantity,
+            COALESCE(SUM(CASE WHEN oi.status <> 'cancelled' THEN
+              (oi.unit_price_satang +
+                (SELECT COALESCE(SUM(oio.extra_price_satang), 0)
+                   FROM order_item_options AS oio
+                  WHERE oio.order_item_id = oi.id)
+              ) * oi.quantity
+            END), 0) AS total_satang
+       FROM bills AS b
+       JOIN dining_tables     AS t  ON t.id = b.table_id
+       LEFT JOIN order_rounds AS r  ON r.bill_id = b.id
+       LEFT JOIN order_items  AS oi ON oi.round_id = r.id
+      WHERE b.status = 'closed'
+      GROUP BY b.id, b.opened_at, b.closed_at, t.id, t.table_number
+      ORDER BY b.closed_at DESC, b.id DESC;`
+  );
+}
+
 export async function closeBill(db, billId) {
   const result = await db.runAsync(
     `UPDATE bills
@@ -118,4 +161,3 @@ export async function closeBill(db, billId) {
   }
   return result.changes;
 }
-

@@ -1,4 +1,3 @@
-
 export const DATABASE_NAME = 'goldspot_restaurant_order_v1.db';
 
 // ราคาเก็บเป็นสตางค์ (จำนวนเต็ม) หารด้วยค่านี้ตอนแสดงผลอย่างเดียว
@@ -7,8 +6,7 @@ export const SATANG_PER_BAHT = 100;
 export const SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;
 
-
--- หมวดหมู่อาหาร
+-- 1) หมวดหมู่อาหาร
 
 CREATE TABLE IF NOT EXISTS categories (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -17,8 +15,7 @@ CREATE TABLE IF NOT EXISTS categories (
   CHECK (length(trim(name)) > 0)
 );
 
-
--- รายการอาหาร  (ราคาเก็บเป็นสตางค์ จำนวนเต็ม ห้ามใช้ REAL)
+-- 2) รายการอาหาร  (ราคาเก็บเป็นสตางค์ จำนวนเต็ม ห้ามใช้ REAL)
 
 CREATE TABLE IF NOT EXISTS menu_items (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,7 +33,8 @@ CREATE TABLE IF NOT EXISTS menu_items (
 );
 
 
--- โต๊ะในร้าน
+-- 3) โต๊ะในร้าน
+
 CREATE TABLE IF NOT EXISTS dining_tables (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   table_number  INTEGER NOT NULL UNIQUE,
@@ -46,7 +44,8 @@ CREATE TABLE IF NOT EXISTS dining_tables (
 );
 
 
--- บิล  (หนึ่งมื้อของหนึ่งโต๊ะ)
+-- 4) บิล  (หนึ่งมื้อของหนึ่งโต๊ะ)
+
 CREATE TABLE IF NOT EXISTS bills (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
   table_id   INTEGER NOT NULL REFERENCES dining_tables(id)
@@ -68,7 +67,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_bills_one_open_per_table
   WHERE status = 'open';
 
 
--- 5 รอบการสั่ง  (ลูกค้ากดยืนยันหนึ่งครั้ง = หนึ่งรอบ)
+-- 5) รอบการสั่ง  (ลูกค้ากดยืนยันหนึ่งครั้ง = หนึ่งรอบ)
 
 CREATE TABLE IF NOT EXISTS order_rounds (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -82,7 +81,7 @@ CREATE TABLE IF NOT EXISTS order_rounds (
 );
 
 
---รายการที่สั่งในแต่ละรอบ
+-- 6) รายการที่สั่งในแต่ละรอบ
 
 CREATE TABLE IF NOT EXISTS order_items (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,12 +108,57 @@ CREATE TABLE IF NOT EXISTS order_items (
 );
 
 
+-- 7) ตัวเลือกเสริมที่มีผลต่อราคา เช่น พิเศษ +10 บาท, เพิ่มไข่ดาว +10 บาท
+
+CREATE TABLE IF NOT EXISTS menu_options (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  name                TEXT    NOT NULL UNIQUE,
+  extra_price_satang  INTEGER NOT NULL,
+  CHECK (length(trim(name)) > 0),
+  CHECK (extra_price_satang >= 0)
+);
+
+
+-- 8) เมนูไหนเลือกตัวเลือกไหนได้
+
+CREATE TABLE IF NOT EXISTS menu_item_options (
+  menu_item_id  INTEGER NOT NULL REFERENCES menu_items(id)
+                  ON UPDATE CASCADE
+                  ON DELETE CASCADE,
+  option_id     INTEGER NOT NULL REFERENCES menu_options(id)
+                  ON UPDATE CASCADE
+                  ON DELETE CASCADE,
+  PRIMARY KEY (menu_item_id, option_id)
+);
+
+
+-- 9) ตัวเลือกที่ลูกค้าเลือกจริงในแต่ละรายการที่สั่ง
+
+CREATE TABLE IF NOT EXISTS order_item_options (
+  order_item_id       INTEGER NOT NULL REFERENCES order_items(id)
+                        ON UPDATE CASCADE
+                        ON DELETE CASCADE,
+  option_id           INTEGER NOT NULL REFERENCES menu_options(id)
+                        ON UPDATE CASCADE
+                        ON DELETE RESTRICT,
+  option_name         TEXT    NOT NULL,
+  extra_price_satang  INTEGER NOT NULL,
+  PRIMARY KEY (order_item_id, option_id),
+  CHECK (length(trim(option_name)) > 0),
+  CHECK (extra_price_satang >= 0)
+);
+
+
+-- 10) ค่าตั้งค่าเล็ก ๆ ของแอป ใช้กันการใส่ข้อมูลตั้งต้นซ้ำ
+
 CREATE TABLE IF NOT EXISTS app_meta (
   key    TEXT PRIMARY KEY,
   value  TEXT NOT NULL
 );
 
---index
+
+-- ดัชนี: สร้างบนคอลัมน์ที่ถูกค้นบ่อยจริงในแอป
+
 
 -- หน้าเมนูฝั่งลูกค้า: ดึงเมนูของหมวดหนึ่ง เรียงตามชื่อ
 CREATE INDEX IF NOT EXISTS idx_menu_items_category
@@ -123,10 +167,6 @@ CREATE INDEX IF NOT EXISTS idx_menu_items_category
 -- หน้าเลือกโต๊ะ: หาบิลที่ยังเปิดอยู่ของโต๊ะนั้น
 CREATE INDEX IF NOT EXISTS idx_bills_table_status
   ON bills (table_id, status);
-
--- หน้าสรุปยอดขายรายวัน: กรองด้วยช่วงวันที่ปิดบิล
-CREATE INDEX IF NOT EXISTS idx_bills_closed_at
-  ON bills (closed_at);
 
 -- หน้าสรุปบิล: ไล่รอบทั้งหมดของบิลเดียวตามลำดับรอบ
 CREATE INDEX IF NOT EXISTS idx_order_rounds_bill

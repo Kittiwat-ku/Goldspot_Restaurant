@@ -1,4 +1,3 @@
-
 export { DATABASE_NAME } from './schema';
 export { initDatabase, resetSalesData, resetEverything } from './database';
 
@@ -6,7 +5,11 @@ export {
   listCategories,
   listMenuItemsByCategory,
   searchMenuItems,
+  listOptionsForMenuItem,
+  addMenuItem,
   updateMenuPrice,
+  updateMenuImage,
+  setMenuAvailability,
 } from './menuRepo';
 
 export {
@@ -17,6 +20,7 @@ export {
   getBillTotal,
   listBillLines,
   listRoundTotals,
+  listClosedBills,
   closeBill,
 } from './billRepo';
 
@@ -29,4 +33,4 @@ export {
   cancelOrderItem,
 } from './kitchenRepo';
 
-export { formatBaht } from './money';
+export { formatBaht, toSatang } from './money';

@@ -1,3 +1,4 @@
+/** คิวในครัว */
 export function listKitchenQueue(db) {
   return db.getAllAsync(
     `SELECT oi.id           AS order_item_id,
@@ -5,6 +6,9 @@ export function listKitchenQueue(db) {
             oi.quantity,
             oi.note,
             oi.status,
+            (SELECT GROUP_CONCAT(oio.option_name, ', ')
+               FROM order_item_options AS oio
+              WHERE oio.order_item_id = oi.id) AS options_text,
             r.round_no,
             r.ordered_at,
             t.table_number,
