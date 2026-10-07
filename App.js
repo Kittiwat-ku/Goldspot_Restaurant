@@ -7,7 +7,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { registerRootComponent } from 'expo';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 
@@ -156,8 +155,6 @@ function Screens() {
   );
 }
 
-// ต้องเรียกเองเมื่อใช้ App.js เป็นไฟล์เริ่มต้น export default อย่างเดียวไม่พอ
-registerRootComponent(App);
 
 const styles = StyleSheet.create({
   root: {
