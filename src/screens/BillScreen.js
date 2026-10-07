@@ -12,6 +12,7 @@ import {
 } from '../db';
 import { colors, radius, spacing } from '../style/theme';
 
+
 const STATUS_TEXT = {
   pending: 'รอครัวรับ',
   cooking: 'กำลังทำ',
@@ -43,9 +44,10 @@ export default function BillScreen({ table, billId, onAddMore, onBillClosed }) {
       await reload();
     }
     loadFirstTime();
-    // โหลดครั้งเดียวตอนเข้าหน้า ไม่ใส่ reload ในวงเล็บ ไม่งั้นจะวนโหลดไม่จบ
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
+
+  const isClosed = bill !== null && bill.status === 'closed';
 
   function handleCloseBill() {
     Alert.alert(
@@ -75,6 +77,9 @@ export default function BillScreen({ table, billId, onAddMore, onBillClosed }) {
           <Text style={styles.tableName}>โต๊ะ {table.table_number}</Text>
           <Text style={styles.cardLine}>บิลเลขที่ {billId}</Text>
           <Text style={styles.cardLine}>เปิดบิล {bill ? bill.opened_at : '-'} น.</Text>
+          {isClosed ? (
+            <Text style={styles.closedBadge}>ปิดบิลแล้ว · {bill.closed_at} น.</Text>
+          ) : null}
         </View>
 
         {rounds.map((round) => (
@@ -96,8 +101,13 @@ export default function BillScreen({ table, billId, onAddMore, onBillClosed }) {
                       <Text style={[styles.lineName, isCancelled && styles.cancelled]}>
                         {line.item_name} × {line.quantity}
                       </Text>
+                      {line.options_text ? (
+                        <Text style={styles.lineOptions}>
+                          + {line.options_text} (+{formatBaht(line.options_satang)} ฿)
+                        </Text>
+                      ) : null}
                       <Text style={styles.lineMeta}>
-                        {formatBaht(line.unit_price_satang)} ฿ / จาน · {STATUS_TEXT[line.status]}
+                        {formatBaht(line.unit_total_satang)} ฿ / จาน · {STATUS_TEXT[line.status]}
                       </Text>
                       {line.note ? <Text style={styles.lineNote}>หมายเหตุ: {line.note}</Text> : null}
                     </View>
@@ -122,14 +132,16 @@ export default function BillScreen({ table, billId, onAddMore, onBillClosed }) {
           <Text style={styles.totalValue}>{formatBaht(total)} ฿</Text>
         </View>
 
-        <View style={styles.footerButtons}>
-          <Pressable style={[styles.button, styles.buttonLight]} onPress={onAddMore}>
-            <Text style={styles.buttonLightText}>สั่งเพิ่ม</Text>
-          </Pressable>
-          <Pressable style={[styles.button, styles.buttonMain]} onPress={handleCloseBill}>
-            <Text style={styles.buttonMainText}>ชำระเงินและปิดบิล</Text>
-          </Pressable>
-        </View>
+        {isClosed ? null : (
+          <View style={styles.footerButtons}>
+            <Pressable style={[styles.button, styles.buttonLight]} onPress={onAddMore}>
+              <Text style={styles.buttonLightText}>สั่งเพิ่ม</Text>
+            </Pressable>
+            <Pressable style={[styles.button, styles.buttonMain]} onPress={handleCloseBill}>
+              <Text style={styles.buttonMainText}>ชำระเงินและปิดบิล</Text>
+            </Pressable>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -148,6 +160,18 @@ const styles = StyleSheet.create({
   },
   tableName: { fontSize: 20, fontWeight: '700', color: colors.text },
   cardLine: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  closedBadge: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.sm,
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
+    backgroundColor: colors.background,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
 
   roundHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   roundTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
@@ -165,6 +189,7 @@ const styles = StyleSheet.create({
   lineInfo: { flex: 1, gap: 2 },
   lineName: { fontSize: 15, color: colors.text },
   lineMeta: { fontSize: 12, color: colors.textMuted },
+  lineOptions: { fontSize: 13, color: colors.text },
   lineNote: { fontSize: 12, color: colors.primary },
   lineTotal: { fontSize: 15, fontWeight: '600', color: colors.text },
   cancelled: { textDecorationLine: 'line-through', color: colors.textMuted },
