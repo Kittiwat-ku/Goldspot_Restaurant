@@ -5,16 +5,16 @@ import { useSQLiteContext } from 'expo-sqlite';
 import { formatBaht, listTablesWithStatus } from '../db';
 import { colors, radius, spacing } from '../style/theme';
 
-/** หน้าเลือกโต๊ะ โต๊ะที่มีบิลค้างจะเป็นการ์ดสีส้มพร้อมยอดที่ค้างอยู่ */
+
 export default function SelectTableScreen({ onSelectTable }) {
   const db = useSQLiteContext();
   const [tables, setTables] = useState([]);
 
-  // แท็บเล็ตประจำโต๊ะจอกว้างกว่ามือถือมาก คำนวณจำนวนคอลัมน์จากความกว้างจริง
+
   const { width } = useWindowDimensions();
   const numColumns = Math.min(6, Math.max(3, Math.floor(width / 200)));
 
-  // SQLite ไม่ได้บอก React ว่ามีอะไรเปลี่ยน ต้องสั่งอ่านเอง
+
   async function reload() {
     setTables(await listTablesWithStatus(db));
   }
@@ -24,8 +24,7 @@ export default function SelectTableScreen({ onSelectTable }) {
       await reload();
     }
     loadFirstTime();
-    // โหลดครั้งเดียวตอนเข้าหน้า ไม่ใส่ reload ในวงเล็บ ไม่งั้นจะวนโหลดไม่จบ
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+ 
   }, []);
 
   const occupied = tables.filter((table) => table.open_bill_id !== null).length;
@@ -42,10 +41,12 @@ export default function SelectTableScreen({ onSelectTable }) {
       refreshing={false}
       ListHeaderComponent={
         <View style={styles.header}>
-          <Text style={styles.title}>เลือกโต๊ะของคุณ</Text>
-          <View style={styles.legendRow}>
-            <Text style={styles.legendFree}>● ว่าง {tables.length - occupied} โต๊ะ</Text>
-            <Text style={styles.legendOccupied}>● มีบิลค้าง {occupied} โต๊ะ</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>เลือกโต๊ะของคุณ</Text>
+            <View style={styles.legendRow}>
+              <Text style={styles.legendFree}>● ว่าง {tables.length - occupied} โต๊ะ</Text>
+              <Text style={styles.legendOccupied}>● มีบิลค้าง {occupied} โต๊ะ</Text>
+            </View>
           </View>
         </View>
       }
@@ -80,7 +81,8 @@ export default function SelectTableScreen({ onSelectTable }) {
 const styles = StyleSheet.create({
   content: { padding: spacing.lg, paddingBottom: spacing.xl },
   column: { gap: spacing.md },
-  header: { marginBottom: spacing.lg, gap: spacing.sm },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.lg },
+  headerText: { flex: 1, gap: spacing.sm },
   title: { fontSize: 22, fontWeight: '700', color: colors.text },
   legendRow: { flexDirection: 'row', gap: spacing.lg },
   legendFree: { fontSize: 13, color: colors.free },

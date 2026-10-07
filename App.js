@@ -9,10 +9,13 @@ import {
 } from 'react-native';
 import { SQLiteProvider } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
+
 import { DATABASE_NAME, initDatabase } from './src/db';
+import BillHistoryScreen from './src/screens/BillHistoryScreen';
 import BillScreen from './src/screens/BillScreen';
 import KitchenScreen from './src/screens/KitchenScreen';
 import MenuScreen from './src/screens/MenuScreen';
+import MenuSettingsScreen from './src/screens/MenuSettingsScreen';
 import SelectTableScreen from './src/screens/SelectTableScreen';
 import { colors, radius, spacing } from './src/style/theme';
 
@@ -28,28 +31,42 @@ export default function App() {
   );
 }
 
+
 function Screens() {
+
   const [side, setSide] = useState('customer');
   const [page, setPage] = useState('tables');
   const [table, setTable] = useState(null);
   const [billId, setBillId] = useState(null);
+  const [kitchenPage, setKitchenPage] = useState('queue');
+  const [historyTable, setHistoryTable] = useState(null);
+  const [historyBillId, setHistoryBillId] = useState(null);
 
   const isKitchen = side === 'kitchen';
 
   let title = 'เลือกโต๊ะ';
-  if (isKitchen) title = 'ครัว · คิวออร์เดอร์';
+  if (isKitchen && kitchenPage === 'settings') title = 'ครัว · ตั้งค่าเมนู';
+  else if (isKitchen && kitchenPage === 'history') title = 'ครัว · บิลย้อนหลัง';
+  else if (isKitchen && kitchenPage === 'historyBill') {
+    title = 'ครัว · บิลย้อนหลัง · โต๊ะ ' + historyTable.table_number;
+  } else if (isKitchen) title = 'ครัว · คิวออร์เดอร์';
   else if (page === 'menu') title = 'สั่งอาหาร · โต๊ะ ' + table.table_number;
   else if (page === 'bill') title = 'บิล · โต๊ะ ' + table.table_number;
 
+  // ฝั่งครัวมีปุ่มย้อนกลับทุกหน้ายกเว้นหน้าคิว ฝั่งลูกค้ามีทุกหน้ายกเว้นหน้าเลือกโต๊ะ
+  const showBack = isKitchen ? kitchenPage !== 'queue' : page !== 'tables';
+
   function handleBack() {
-    if (page === 'bill') setPage('menu');
+    if (isKitchen && kitchenPage === 'historyBill') setKitchenPage('history');
+    else if (isKitchen) setKitchenPage('queue');
+    else if (page === 'bill') setPage('menu');
     else setPage('tables');
   }
 
   return (
     <View style={styles.shell}>
       <View style={styles.header}>
-        {!isKitchen && page !== 'tables' ? (
+        {showBack ? (
           <Pressable onPress={handleBack} style={styles.backButton}>
             <Text style={styles.backText}>‹ ย้อนกลับ</Text>
           </Pressable>
@@ -78,7 +95,34 @@ function Screens() {
         </View>
       </View>
 
-      {isKitchen ? <KitchenScreen /> : null}
+      {isKitchen && kitchenPage === 'queue' ? (
+        <KitchenScreen
+          onOpenMenuSettings={() => setKitchenPage('settings')}
+          onOpenHistory={() => setKitchenPage('history')}
+        />
+      ) : null}
+
+      {isKitchen && kitchenPage === 'settings' ? <MenuSettingsScreen /> : null}
+
+      {isKitchen && kitchenPage === 'history' ? (
+        <BillHistoryScreen
+          onOpenBill={(row) => {
+            setHistoryTable({ table_id: row.table_id, table_number: row.table_number });
+            setHistoryBillId(row.bill_id);
+            setKitchenPage('historyBill');
+          }}
+        />
+      ) : null}
+
+      {/* บิลที่ปิดแล้ว BillScreen ซ่อนปุ่มสั่งเพิ่ม/ปิดบิลเอง สองปุ่มนี้เลยแค่พากลับหน้ารายการ */}
+      {isKitchen && kitchenPage === 'historyBill' ? (
+        <BillScreen
+          table={historyTable}
+          billId={historyBillId}
+          onAddMore={() => setKitchenPage('history')}
+          onBillClosed={() => setKitchenPage('history')}
+        />
+      ) : null}
 
       {!isKitchen && page === 'tables' ? (
         <SelectTableScreen
@@ -110,6 +154,7 @@ function Screens() {
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   root: {

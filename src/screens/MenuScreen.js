@@ -21,6 +21,7 @@ import {
   getOpenBillForTable,
   listCategories,
   listMenuItemsByCategory,
+  listOptionsForMenuItem,
   openOrGetBill,
   placeOrderRound,
   searchMenuItems,
@@ -41,9 +42,15 @@ export default function MenuScreen({ table, onViewBill }) {
   const [cart, setCart] = useState([]);
   const [cartOpen, setCartOpen] = useState(false);
 
+  // หน้าต่างเลือกตัวเลือกเสริม: เปิดอยู่เมื่อ pickerItem ไม่ใช่ null
+  const [pickerItem, setPickerItem] = useState(null);
+  const [pickerOptions, setPickerOptions] = useState([]);
+  const [pickerChosenIds, setPickerChosenIds] = useState([]);
+
   const [bill, setBill] = useState(null);
   const [billTotal, setBillTotal] = useState(0);
   const [message, setMessage] = useState('');
+
 
   useEffect(() => {
     async function loadFirstTime() {
@@ -56,6 +63,7 @@ export default function MenuScreen({ table, onViewBill }) {
     // โหลดครั้งเดียวตอนเข้าหน้า จึงปล่อยวงเล็บว่างไว้
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
 
   useEffect(() => {
     async function loadItems() {
@@ -81,43 +89,74 @@ export default function MenuScreen({ table, onViewBill }) {
     }
   }
 
-  function addToCart(item) {
+  function addLine(item, chosenOptions) {
     setMessage('');
-    const found = cart.find((line) => line.menuItemId === item.id);
+    const optionIds = chosenOptions.map((option) => option.id).sort((a, b) => a - b);
+    const key = item.id + ':' + optionIds.join(',');
 
+    const found = cart.find((line) => line.key === key);
     if (found) {
-      changeQuantity(item.id, 1);
+      changeQuantity(key, 1);
       return;
     }
 
+    const extraSatang = chosenOptions.reduce((sum, option) => sum + option.extra_price_satang, 0);
     setCart([
       ...cart,
-      { menuItemId: item.id, name: item.name, priceSatang: item.price_satang, quantity: 1, note: '' },
+      {
+        key,
+        menuItemId: item.id,
+        name: item.name,
+        options: chosenOptions,
+        unitPriceSatang: item.price_satang + extraSatang,
+        quantity: 1,
+        note: '',
+      },
     ]);
   }
 
-  function changeQuantity(menuItemId, diff) {
+  function changeQuantity(key, diff) {
     const next = cart
-      .map((line) =>
-        line.menuItemId === menuItemId ? { ...line, quantity: line.quantity + diff } : line
-      )
+      .map((line) => (line.key === key ? { ...line, quantity: line.quantity + diff } : line))
       .filter((line) => line.quantity > 0);
     setCart(next);
   }
 
-  function changeNote(menuItemId, note) {
-    setCart(cart.map((line) => (line.menuItemId === menuItemId ? { ...line, note } : line)));
+  function changeNote(key, note) {
+    setCart(cart.map((line) => (line.key === key ? { ...line, note } : line)));
+  }
+
+  async function openPicker(item) {
+    setPickerOptions(await listOptionsForMenuItem(db, item.id));
+    setPickerChosenIds([]);
+    setPickerItem(item);
+  }
+
+  function toggleOption(optionId) {
+    if (pickerChosenIds.includes(optionId)) {
+      setPickerChosenIds(pickerChosenIds.filter((id) => id !== optionId));
+    } else {
+      setPickerChosenIds([...pickerChosenIds, optionId]);
+    }
+  }
+
+  function confirmPicker() {
+    const chosen = pickerOptions.filter((option) => pickerChosenIds.includes(option.id));
+    addLine(pickerItem, chosen);
+    setPickerItem(null);
   }
 
   async function handleSend() {
     if (cart.length === 0) return;
 
     try {
+
       const activeBill = await openOrGetBill(db, table.table_id);
       const lines = cart.map((line) => ({
         menuItemId: line.menuItemId,
         quantity: line.quantity,
         note: line.note.trim() === '' ? null : line.note.trim(),
+        optionIds: line.options.map((option) => option.id),
       }));
 
       const placed = await placeOrderRound(db, activeBill.id, lines);
@@ -127,12 +166,21 @@ export default function MenuScreen({ table, onViewBill }) {
       setMessage('ส่งเข้าครัวแล้ว · รอบที่ ' + placed.roundNo + ' · ' + placed.itemCount + ' รายการ');
       await reloadBill();
     } catch (e) {
+   
       Alert.alert('ส่งออร์เดอร์ไม่สำเร็จ', e.message);
     }
   }
 
+
   const cartCount = cart.reduce((sum, line) => sum + line.quantity, 0);
-  const cartTotal = cart.reduce((sum, line) => sum + line.priceSatang * line.quantity, 0);
+  const cartTotal = cart.reduce((sum, line) => sum + line.unitPriceSatang * line.quantity, 0);
+
+  const pickerTotal = pickerItem
+    ? pickerItem.price_satang +
+      pickerOptions
+        .filter((option) => pickerChosenIds.includes(option.id))
+        .reduce((sum, option) => sum + option.extra_price_satang, 0)
+    : 0;
 
   return (
     <View style={styles.screen}>
@@ -156,7 +204,7 @@ export default function MenuScreen({ table, onViewBill }) {
           style={styles.searchInput}
           value={keyword}
           onChangeText={setKeyword}
-          placeholder="ค้นหาชื่อเมนู เช่น ผัด, ต้ม, ชา"
+          placeholder="ค้นหาชื่อเมนู"
           placeholderTextColor={colors.textMuted}
         />
         <Text style={styles.switchLabel}>เฉพาะที่มีของ</Text>
@@ -200,8 +248,15 @@ export default function MenuScreen({ table, onViewBill }) {
         ListHeaderComponent={<Text style={styles.listHeader}>{items.length} รายการ</Text>}
         ListEmptyComponent={<Text style={styles.empty}>ไม่พบเมนูที่ค้นหา</Text>}
         renderItem={({ item }) => {
-          const inCart = cart.find((line) => line.menuItemId === item.id);
           const image = getMenuImage(item.image_uri);
+          const hasOptions = item.option_count > 0;
+          // เมนูไม่มีตัวเลือก มีบรรทัดในตะกร้าได้บรรทัดเดียว key ลงท้ายด้วย ":" เปล่า
+          const plainKey = item.id + ':';
+          const plainLine = cart.find((line) => line.key === plainKey);
+          // เมนูมีตัวเลือก อาจแตกเป็นหลายบรรทัด จึงนับรวมทุกบรรทัดของเมนูนี้
+          const countInCart = cart
+            .filter((line) => line.menuItemId === item.id)
+            .reduce((sum, line) => sum + line.quantity, 0);
 
           return (
             <View style={styles.menuRow}>
@@ -216,18 +271,25 @@ export default function MenuScreen({ table, onViewBill }) {
               <View style={styles.menuInfo}>
                 <Text style={styles.menuName}>{item.name}</Text>
                 <Text style={styles.menuPrice}>{formatBaht(item.price_satang)} ฿</Text>
+                {hasOptions && countInCart > 0 ? (
+                  <Text style={styles.inCart}>ในตะกร้า {countInCart} จาน</Text>
+                ) : null}
                 {item.is_available === 0 ? <Text style={styles.soldOut}>ของหมด สั่งไม่ได้</Text> : null}
               </View>
 
               {item.is_available === 1 ? (
-                inCart ? (
+                hasOptions ? (
+                  <Pressable style={styles.addButton} onPress={() => openPicker(item)}>
+                    <Text style={styles.addButtonText}>เลือก</Text>
+                  </Pressable>
+                ) : plainLine ? (
                   <Stepper
-                    quantity={inCart.quantity}
-                    onMinus={() => changeQuantity(item.id, -1)}
-                    onPlus={() => changeQuantity(item.id, 1)}
+                    quantity={plainLine.quantity}
+                    onMinus={() => changeQuantity(plainKey, -1)}
+                    onPlus={() => changeQuantity(plainKey, 1)}
                   />
                 ) : (
-                  <Pressable style={styles.addButton} onPress={() => addToCart(item)}>
+                  <Pressable style={styles.addButton} onPress={() => addLine(item, [])}>
                     <Text style={styles.addButtonText}>เพิ่ม</Text>
                   </Pressable>
                 )
@@ -262,27 +324,32 @@ export default function MenuScreen({ table, onViewBill }) {
 
           <ScrollView style={styles.cartList} keyboardShouldPersistTaps="handled">
             {cart.map((line) => (
-              <View key={line.menuItemId} style={styles.cartLine}>
+              <View key={line.key} style={styles.cartLine}>
                 <View style={styles.cartLineTop}>
                   <Text style={styles.cartLineName}>{line.name}</Text>
                   <Text style={styles.cartLineTotal}>
-                    {formatBaht(line.priceSatang * line.quantity)} ฿
+                    {formatBaht(line.unitPriceSatang * line.quantity)} ฿
                   </Text>
                 </View>
+                {line.options.length > 0 ? (
+                  <Text style={styles.cartLineOptions}>
+                    + {line.options.map((option) => option.name).join(', ')}
+                  </Text>
+                ) : null}
 
                 <View style={styles.cartLineBottom}>
                   <Stepper
                     quantity={line.quantity}
-                    onMinus={() => changeQuantity(line.menuItemId, -1)}
-                    onPlus={() => changeQuantity(line.menuItemId, 1)}
+                    onMinus={() => changeQuantity(line.key, -1)}
+                    onPlus={() => changeQuantity(line.key, 1)}
                   />
-                  <Text style={styles.cartLineUnit}>{formatBaht(line.priceSatang)} ฿ / จาน</Text>
+                  <Text style={styles.cartLineUnit}>{formatBaht(line.unitPriceSatang)} ฿ / จาน</Text>
                 </View>
 
                 <TextInput
                   style={styles.noteInput}
                   value={line.note}
-                  onChangeText={(text) => changeNote(line.menuItemId, text)}
+                  onChangeText={(text) => changeNote(line.key, text)}
                   placeholder="หมายเหตุถึงครัว เช่น ไม่เผ็ด ไม่ใส่ผัก"
                   placeholderTextColor={colors.textMuted}
                 />
@@ -301,9 +368,54 @@ export default function MenuScreen({ table, onViewBill }) {
           </View>
         </View>
       </Modal>
+
+      {/* หน้าต่างเลือกตัวเลือกเสริม ติ๊กได้หลายข้อ ราคาด้านล่างเปลี่ยนตามที่เลือก */}
+      <Modal
+        visible={pickerItem !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPickerItem(null)}
+      >
+        <View style={styles.pickerBackdrop}>
+          {pickerItem ? (
+            <View style={styles.pickerCard}>
+              <Text style={styles.pickerTitle}>{pickerItem.name}</Text>
+              <Text style={styles.pickerBase}>ราคาปกติ {formatBaht(pickerItem.price_satang)} ฿</Text>
+
+              {pickerOptions.map((option) => {
+                const isChosen = pickerChosenIds.includes(option.id);
+                return (
+                  <Pressable
+                    key={option.id}
+                    onPress={() => toggleOption(option.id)}
+                    style={[styles.optionRow, isChosen && styles.optionRowChosen]}
+                  >
+                    <Text style={styles.optionBox}>{isChosen ? '☑' : '☐'}</Text>
+                    <Text style={styles.optionName}>{option.name}</Text>
+                    <Text style={styles.optionPrice}>+{formatBaht(option.extra_price_satang)} ฿</Text>
+                  </Pressable>
+                );
+              })}
+
+              <View style={styles.pickerFooter}>
+                <Text style={styles.pickerTotal}>{formatBaht(pickerTotal)} ฿ / จาน</Text>
+                <View style={styles.pickerButtons}>
+                  <Pressable style={styles.smallButton} onPress={() => setPickerItem(null)}>
+                    <Text style={styles.smallButtonText}>ยกเลิก</Text>
+                  </Pressable>
+                  <Pressable style={styles.addButton} onPress={confirmPicker}>
+                    <Text style={styles.addButtonText}>ใส่ตะกร้า</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </View>
   );
 }
+
 
 function Stepper({ quantity, onMinus, onPlus }) {
   return (
@@ -363,6 +475,7 @@ const styles = StyleSheet.create({
   },
   switchLabel: { fontSize: 13, color: colors.textMuted },
 
+  // flexGrow: 0 กันไม่ให้แถบหมวดยืดสูงเต็มจอ เพราะอยู่ในคอนเทนเนอร์แนวตั้ง
   chipScroll: { flexGrow: 0 },
   chipBar: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.sm },
   chip: {
@@ -406,6 +519,7 @@ const styles = StyleSheet.create({
   menuName: { fontSize: 15, color: colors.text },
   menuPrice: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
   soldOut: { fontSize: 12, color: colors.danger, marginTop: 2 },
+  inCart: { fontSize: 12, fontWeight: '600', color: colors.text, marginTop: 2 },
 
   addButton: {
     backgroundColor: colors.primary,
@@ -479,6 +593,7 @@ const styles = StyleSheet.create({
   cartLineTotal: { fontSize: 15, fontWeight: '700', color: colors.text },
   cartLineBottom: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cartLineUnit: { fontSize: 12, color: colors.textMuted },
+  cartLineOptions: { fontSize: 13, color: colors.primary },
   noteInput: {
     backgroundColor: colors.background,
     borderWidth: 1,
@@ -498,4 +613,44 @@ const styles = StyleSheet.create({
   cartTotalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
   cartTotalLabel: { fontSize: 14, color: colors.textMuted },
   cartTotalValue: { fontSize: 22, fontWeight: '700', color: colors.text },
+
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  pickerCard: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    gap: spacing.sm,
+  },
+  pickerTitle: { fontSize: 20, fontWeight: '700', color: colors.text },
+  pickerBase: { fontSize: 13, color: colors.textMuted, marginBottom: spacing.sm },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  optionRowChosen: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  optionBox: { fontSize: 20, color: colors.primary },
+  optionName: { flex: 1, fontSize: 15, color: colors.text },
+  optionPrice: { fontSize: 14, fontWeight: '600', color: colors.text },
+  pickerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.sm,
+  },
+  pickerTotal: { fontSize: 18, fontWeight: '700', color: colors.text },
+  pickerButtons: { flexDirection: 'row', gap: spacing.sm },
 });

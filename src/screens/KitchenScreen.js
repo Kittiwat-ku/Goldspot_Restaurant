@@ -12,16 +12,7 @@ import {
 } from '../db';
 import { colors, radius, spacing } from '../style/theme';
 
-/**
- * หน้าจอฝั่งครัว
- *
- * - คิวเรียงตามเวลาที่สั่ง เก่าสุดขึ้นก่อน บอกโต๊ะ รอบ และหมายเหตุ
- * - เปลี่ยนสถานะ รอครัวรับ -> กำลังทำ -> เสิร์ฟแล้ว
- * - ยกเลิกได้เฉพาะรายการที่ครัวยังไม่ลงมือทำ พร้อมบันทึกเวลา (ระดับ ข ข้อ 3)
- *
- * ครัวเปิดจอค้างไว้ทั้งวัน จึงตั้งเวลาให้ดึงคิวใหม่เองทุก 5 วินาที
- */
-export default function KitchenScreen() {
+export default function KitchenScreen({ onOpenMenuSettings, onOpenHistory }) {
   const db = useSQLiteContext();
   const { width } = useWindowDimensions();
 
@@ -47,15 +38,14 @@ export default function KitchenScreen() {
 
     const timer = setInterval(reload, 5000);
     return () => clearInterval(timer);
-    // ตั้งเวลาครั้งเดียวตอนเข้าหน้า ไม่ใส่ reload ในวงเล็บ ไม่งั้นจะตั้งเวลาใหม่ทุกครั้งที่ render
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   async function handleStatus(item, nextStatus) {
     try {
       await updateItemStatus(db, item.order_item_id, nextStatus);
     } catch (e) {
-      // เช่น อีกเครื่องเปลี่ยนสถานะรายการนี้ไปก่อนแล้ว
+
       Alert.alert('เปลี่ยนสถานะไม่ได้', e.message);
     }
     await reload();
@@ -97,7 +87,6 @@ export default function KitchenScreen() {
       {
         text: 'ล้างทั้งหมด',
         style: 'destructive',
-        // ใช้ตอนเพิ่มเมนูใหม่หรือเปลี่ยนรูปใน seedData.js แล้วอยากให้ข้อมูลใหม่เข้าเครื่อง
         onPress: async () => {
           await resetEverything(db);
           await reload();
@@ -112,6 +101,12 @@ export default function KitchenScreen() {
         <Text style={styles.statPending}>● รอครัวรับ {pendingCount}</Text>
         <Text style={styles.statCooking}>● กำลังทำ {cookingCount}</Text>
         <View style={styles.spacer} />
+        <Pressable style={styles.smallButton} onPress={onOpenMenuSettings}>
+          <Text style={styles.smallButtonText}>ตั้งค่าเมนู</Text>
+        </Pressable>
+        <Pressable style={styles.smallButton} onPress={onOpenHistory}>
+          <Text style={styles.smallButtonText}>บิลย้อนหลัง</Text>
+        </Pressable>
         <Pressable style={styles.smallButton} onPress={reload}>
           <Text style={styles.smallButtonText}>รีเฟรช</Text>
         </Pressable>
@@ -140,6 +135,7 @@ export default function KitchenScreen() {
               <Text style={styles.itemName}>
                 {item.item_name} × {item.quantity}
               </Text>
+              {item.options_text ? <Text style={styles.itemOptions}>+ {item.options_text}</Text> : null}
               {/* ordered_at เก็บเป็น "2026-09-29 19:37:35" ตัดเอาเฉพาะเวลา */}
               <Text style={styles.itemMeta}>
                 รอบที่ {item.round_no} · สั่งเมื่อ {item.ordered_at.slice(11, 16)} น.
@@ -244,6 +240,7 @@ const styles = StyleSheet.create({
   },
 
   itemName: { fontSize: 17, fontWeight: '600', color: colors.text, marginTop: spacing.sm },
+  itemOptions: { fontSize: 15, fontWeight: '600', color: colors.cooking, marginTop: 2 },
   itemMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
   itemNote: { fontSize: 13, color: colors.primary, marginTop: spacing.xs },
 
