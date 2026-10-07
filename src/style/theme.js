@@ -11,6 +11,10 @@ export const colors = {
   occupied: '#ff9f0a',
   occupiedSoft: '#fff4e0',
   free: '#34c759',
+  freeSoft: '#e8f8ed',
+  cooking: '#5856d6',
+  cookingSoft: '#ecebfb',
+  danger: '#ff3b30',
 };
 
 export const spacing = {
@@ -25,5 +29,4 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 16,
-  xl: 24,
 };
