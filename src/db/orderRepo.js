@@ -14,7 +14,6 @@ export async function placeOrderRound(db, billId, cartItems) {
       throw new Error('ส่งออร์เดอร์ไม่ได้: บิลใบนี้ถูกปิดไปแล้ว');
     }
 
-    // รอบที่เท่าไรของบิลนี้เอาไว้เรียงลำดับรายการในบิล
     const nextRound = await db.getFirstAsync(
       `SELECT COALESCE(MAX(round_no), 0) + 1 AS round_no
          FROM order_rounds
@@ -36,7 +35,6 @@ export async function placeOrderRound(db, billId, cartItems) {
         throw new Error('จำนวนต้องเป็นจำนวนเต็มที่มากกว่าศูนย์');
       }
 
-      // คงราคาบิลเดิม
       const result = await db.runAsync(
         `INSERT INTO order_items
            (round_id, menu_item_id, item_name, unit_price_satang, quantity, status, note)
@@ -47,7 +45,24 @@ export async function placeOrderRound(db, billId, cartItems) {
       );
 
       if (result.changes !== 1) {
-        throw new Error('เมนูบางรายการถูกปิดการขายไปแล้ว กรุณาตรวจตะกร้าอีกครั้ง');
+        throw new Error('เมนูบางรายการถูกปิดการขายไปแล้ว กรุณาตรวจสอบตะกร้าอีกครั้ง');
+      }
+      const orderItemId = result.lastInsertRowId;
+
+      for (const optionId of item.optionIds ?? []) {
+        const optionResult = await db.runAsync(
+          `INSERT INTO order_item_options
+             (order_item_id, option_id, option_name, extra_price_satang)
+           SELECT ?, o.id, o.name, o.extra_price_satang
+             FROM menu_options      AS o
+             JOIN menu_item_options AS mio ON mio.option_id = o.id
+            WHERE mio.menu_item_id = ? AND o.id = ?;`,
+          [orderItemId, item.menuItemId, optionId]
+        );
+
+        if (optionResult.changes !== 1) {
+          throw new Error('มีตัวเลือกที่เมนูนี้ไม่มีให้เลือก กรุณาตรวจตะกร้าอีกครั้ง');
+        }
       }
     }
 
@@ -56,4 +71,3 @@ export async function placeOrderRound(db, billId, cartItems) {
 
   return placed;
 }
-
